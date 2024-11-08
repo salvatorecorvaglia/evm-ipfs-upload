@@ -1,0 +1,52 @@
+/* Main application styling */
+.App {
+  text-align: center;
+  font-family: 'Arial', sans-serif; /* Clean font for better readability */
+  margin: 0; /* Ensure no default margin */
+  padding: 0; /* Ensure no default padding */
+}
+
+/* Logo styling */
+.App-logo {
+  height: 40vmin; /* Responsive height */
+  pointer-events: none; /* Prevents interaction */
+  transition: transform 0.5s; /* Smooth transform effect */
+}
+
+/* Animation settings */
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear; /* Continuous spinning animation */
+  }
+}
+
+/* Header styling */
+.app-header {
+  background-color: #282c34; /* Dark background for contrast */
+  padding: 20px; /* Padding for spacing */
+  color: white; /* White text color */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); /* Subtle shadow for depth */
+  border-radius: 8px; /* Rounded corners for modern look */
+}
+
+/* Link styling */
+.App-link {
+  color: #61dafb; /* Bright link color */
+  text-decoration: none; /* Remove underline */
+  transition: color 0.3s; /* Smooth color transition */
+}
+
+/* Hover effect for links */
+.App-link:hover {
+  color: #21a1f1; /* Darker shade on hover */
+}
+
+/* Keyframes for logo spinning */
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg); /* Start at 0 degrees */
+  }
+  to {
+    transform: rotate(360deg); /* End at 360 degrees */
+  }
+}
