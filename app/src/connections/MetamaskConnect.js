@@ -1,10 +1,9 @@
-import {ethers} from 'ethers';
+import { ethers } from 'ethers';
 
 // Connect to MetaMask
 export const connectToMetamask = async () => {
     if (!window.ethereum) {
-        alert('Please install MetaMask!');
-        return null;
+        throw new Error('Please install MetaMask!');
     }
 
     try {
@@ -13,8 +12,7 @@ export const connectToMetamask = async () => {
         return await provider.getSigner();
     } catch (error) {
         console.error("Metamask connection failed:", error);
-        alert("Failed to connect to MetaMask. Please try again.");
-        return null; // Explicitly return null on failure
+        throw new Error("Failed to connect to MetaMask. Please try again or check if it is installed.");
     }
 };
 

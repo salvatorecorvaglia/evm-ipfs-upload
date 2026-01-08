@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     cleanupAccountChangeListener,
     connectToMetamask,
@@ -6,11 +6,11 @@ import {
     isConnected,
     setupAccountChangeListener
 } from '../connections/MetamaskConnect';
-import {uploadToPinata} from '../api/PinataAPI';
-import {ethers, toUtf8Bytes} from 'ethers';
-import {useDropzone} from 'react-dropzone';
+import { uploadToPinata } from '../api/PinataAPI';
+import { ethers, toUtf8Bytes } from 'ethers';
+import { useDropzone } from 'react-dropzone';
 import '../styles/index.css';
-import {decodeHexToUTF8, maskAddress} from "../functions";
+import { decodeHexToUTF8, maskAddress } from "../functions";
 import axios from 'axios';
 
 const UploadIPFSPinata = () => {
@@ -90,11 +90,11 @@ const UploadIPFSPinata = () => {
             const signer = await connectToMetamask();
             if (signer) {
                 const address = await signer.getAddress();
-                setUploadState(prev => ({ ...prev, account: address, walletConnected: true }));
+                setUploadState(prev => ({ ...prev, account: address, walletConnected: true, uploadStatus: '' }));
             }
         } catch (error) {
             console.error('Failed to connect to MetaMask:', error);
-            setUploadState(prev => ({ ...prev, uploadStatus: 'Connection failed. Please try again.' }));
+            setUploadState(prev => ({ ...prev, uploadStatus: error.message || 'Connection failed. Please try again.' }));
         }
     }, []);
 
@@ -125,18 +125,31 @@ const UploadIPFSPinata = () => {
 
                 const receipt = await transaction.wait();
                 if (receipt.status === 1) {
-                    setUploadState(prev => ({
-                        ...prev,
-                        transactionHash: transaction.hash,
-                        uploadStatus: 'Transaction successful!',
-                        file: null,
-                        utf8String: decodeHexToUTF8(transaction.data).replace(/\0/g, '')
-                    }));
+                    setUploadState(prev => ({ ...prev, uploadStatus: 'Transaction confirmed. Saving to database...' }));
 
-                    // Save only CID to MongoDB via Express API using axios
-                    await axios.post(`${process.env.REACT_APP_SERVER_URL}/api/upload`, {
-                        cid: pinataData.IpfsHash, // Only CID is being sent here
-                    });
+                    try {
+                        // Save only CID to MongoDB via Express API using axios
+                        await axios.post(`${process.env.REACT_APP_SERVER_URL}/api/upload`, {
+                            cid: pinataData.IpfsHash, // Only CID is being sent here
+                        });
+
+                        setUploadState(prev => ({
+                            ...prev,
+                            transactionHash: transaction.hash,
+                            uploadStatus: 'Transaction and Database Save Successful!',
+                            file: null,
+                            utf8String: decodeHexToUTF8(transaction.data).replace(/\0/g, '')
+                        }));
+                    } catch (dbError) {
+                        console.error('Database save failed:', dbError);
+                        setUploadState(prev => ({
+                            ...prev,
+                            transactionHash: transaction.hash,
+                            uploadStatus: 'Transaction successful, but failed to save to database.',
+                            file: null,
+                            utf8String: decodeHexToUTF8(transaction.data).replace(/\0/g, '')
+                        }));
+                    }
 
                 } else {
                     setUploadState(prev => ({ ...prev, uploadStatus: 'Transaction failed. Please try again.' }));

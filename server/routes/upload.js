@@ -21,10 +21,24 @@ router.post(
             const newUpload = new Upload({ cid });
 
             await newUpload.save();
-            return res.status(201).json({ message: 'Data saved successfully!', upload: newUpload });
+            return res.status(201).json({
+                success: true,
+                message: 'Data saved successfully!',
+                upload: newUpload
+            });
         } catch (error) {
             console.error('Error saving to MongoDB:', error.message);
-            return res.status(500).json({ message: 'Server error', error: error.message });
+            // Check for duplicate key error
+            if (error.code === 11000) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'CID already exists'
+                });
+            }
+            return res.status(500).json({
+                success: false,
+                message: 'Internal Server Error'
+            });
         }
     }
 );
