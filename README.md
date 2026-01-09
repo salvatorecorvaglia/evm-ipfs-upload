@@ -2,16 +2,28 @@
 
 A full-stack decentralized application (dApp) that enables secure file uploads to IPFS via Pinata, stores transaction records on the blockchain, and maintains metadata in MongoDB. Built with React, Node.js, Express, and Web3 technologies.
 
+## ✨ What's New
+
+🔒 **Enhanced Security**: API keys now safely stored on backend  
+📊 **Upload Progress**: Real-time progress tracking for file uploads  
+🔍 **Advanced Queries**: Retrieve uploads by CID, wallet address, or pagination  
+🐳 **Docker Ready**: Complete Docker setup for easy deployment  
+📚 **Better Docs**: Comprehensive API documentation and contribution guidelines
+
 ## 🌟 Features
 
 - **Decentralized File Storage**: Upload files to IPFS using Pinata's pinning service
 - **Blockchain Integration**: Store file hashes on the blockchain using MetaMask transactions
-- **Database Persistence**: Maintain file metadata in MongoDB
+- **Enhanced Security**: API keys secured on backend server
+- **Database Persistence**: Maintain file metadata with additional fields (fileName, fileSize, fileType, wallet address, transaction hash)
+- **Upload Progress Tracking**: Real-time progress bar for file uploads
+- **Advanced Querying**: Query uploads by CID, wallet address, or retrieve all with pagination
 - **Drag & Drop Interface**: User-friendly file upload with drag-and-drop functionality
 - **File Validation**: Support for PDF, PNG, and JPEG files with size limits
 - **Wallet Integration**: Seamless MetaMask connection and account management
 - **Transaction Tracking**: Monitor upload progress and transaction status
 - **IPFS Gateway Access**: Direct links to view files on IPFS
+- **Docker Support**: Complete containerized setup for all services
 
 ## 🏗️ Architecture
 
@@ -20,8 +32,8 @@ A full-stack decentralized application (dApp) that enables secure file uploads t
 │   React Client  │    │  Express Server │    │    MongoDB      │
 │                 │◄──►│                 │◄──►│                 │
 │  - File Upload  │    │  - API Routes   │    │  - File CIDs    │
-│  - MetaMask     │    │  - Validation   │    │  - Timestamps   │
-│  - UI/UX        │    │  - Error Handle │    │                 │
+│  - MetaMask     │    │  - Pinata Proxy │    │  - Metadata     │
+│  - Progress Bar │    │  - Validation   │    │  - Wallet Data  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                        │
          ▼                        ▼
@@ -44,55 +56,75 @@ A full-stack decentralized application (dApp) that enables secure file uploads t
 - MetaMask browser extension
 - Pinata account with API keys
 
-### 1. Clone the Repository
+### Option 1: Docker (Recommended)
+
+The easiest way to run the entire stack:
 
 ```bash
+# 1. Clone the repository
 git clone <repository-url>
 cd evm-ipfs-upload
+
+# 2. Copy and configure environment file
+cp .env.docker .env
+
+# 3. Edit .env and add your Pinata API keys
+# PINATA_API_KEY=your_actual_api_key
+# PINATA_SECRET_KEY=your_actual_secret_key
+
+# 4. Start all services (MongoDB, Backend, Frontend)
+docker-compose up -d
+
+# 5. Access the application
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:5001
+# MongoDB: localhost:27017
 ```
 
-### 2. Environment Setup
+### Option 2: Manual Setup
 
-Create environment files:
-
-**Frontend (.env in /app directory):**
-```env
-REACT_APP_PINATA_API_KEY=your_pinata_api_key
-REACT_APP_PINATA_SECRET_API_KEY=your_pinata_secret_key
-REACT_APP_PINATA_GATEWAY_URL=https://gateway.pinata.cloud
-REACT_APP_SERVER_URL=http://localhost:5001
+For development without Docker:
 ```
 
-**Backend (.env in /server directory):**
-```env
-PORT=5001
-MONGODB_URI=mongodb://localhost:27017/ipfs-upload
-NODE_ENV=development
+### 2. Manual Setup - Environment Variables
+
+Create environment files using the provided examples:
+
+**Frontend (app/.env):**
+```bash
+cp app/.env.example app/.env
+# Edit app/.env and set:
+# REACT_APP_SERVER_URL=http://localhost:5001
+# REACT_APP_PINATA_GATEWAY_URL=https://gateway.pinata.cloud
 ```
 
-**Database (.env in /db directory):**
-```env
-MONGO_INITDB_ROOT_USERNAME=admin
-MONGO_INITDB_ROOT_PASSWORD=password123
+**Backend (server/.env):**
+```bash
+cp server/.env.example server/.env
+# Edit server/.env and set:
+# PORT=5001
+# MONGO_URI=mongodb://localhost:27017/ipfs-upload
+# PINATA_API_KEY=your_pinata_api_key
+# PINATA_SECRET_KEY=your_pinata_secret_key
+# ALLOWED_ORIGINS=http://localhost:3000
 ```
 
-### 3. Start the Database
+### 3. Manual Setup - Start Services
 
+**Start MongoDB:**
 ```bash
 cd db
 docker-compose up -d
 ```
 
-### 4. Install Dependencies & Start Services
-
-**Backend Server:**
+**Start Backend:**
 ```bash
 cd server
 npm install
 npm start
 ```
 
-**Frontend Application:**
+**Start Frontend:**
 ```bash
 cd app
 npm install
@@ -112,7 +144,7 @@ evm-ipfs-upload/
 │   ├── public/                   # Static assets
 │   ├── src/
 │   │   ├── api/
-│   │   │   └── PinataAPI.js     # Pinata service integration
+│   │   │   └── PinataAPI.js     # IPFS upload via backend
 │   │   ├── components/
 │   │   │   ├── UploadIPFSPinata.js  # Main upload component
 │   │   │   └── UploadIPFSNode.js    # Alternative IPFS node component
@@ -121,77 +153,128 @@ evm-ipfs-upload/
 │   │   ├── nodes/
 │   │   │   └── IPFSNode.js      # IPFS node configuration
 │   │   ├── styles/              # CSS stylesheets
-│   │   ├── App.js               # Main application component
-│   │   ├── config.js            # Configuration constants
+│   │   ├── constants.js         # Application constants
+│   │   ├── config.js            # Configuration
 │   │   ├── functions.js         # Utility functions
+│   │   ├── App.js               # Main application component
 │   │   └── index.js             # Application entry point
+│   ├── Dockerfile               # Frontend Docker configuration
+│   ├── .env.example             # Environment template
 │   └── package.json
 ├── server/                       # Express.js backend
 │   ├── config/
-│   │   └── db.js               # Database connection
+│   │   └── db.js               # Database connection with retry logic
 │   ├── models/
-│   │   └── Upload.js           # MongoDB upload schema
+│   │   └── Upload.js           # MongoDB upload schema (enhanced)
 │   ├── routes/
-│   │   └── upload.js           # Upload API routes
+│   │   ├── pinata.js           # Pinata IPFS upload endpoint
+│   │   └── upload.js           # Upload CRUD routes
+│   ├── Dockerfile              # Backend Docker configuration
+│   ├── .env.example            # Environment template
+│   ├── .eslintrc.json          # ESLint configuration
 │   ├── server.js               # Server entry point
 │   └── package.json
 ├── db/                          # Database configuration
 │   └── docker-compose.yml      # MongoDB Docker setup
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # GitHub Actions CI/CD
+├── docker-compose.yml          # Unified stack orchestration
+├── .prettierrc                 # Code formatting rules
+├── API.md                      # API documentation
+├── CONTRIBUTING.md             # Contribution guidelines
+├── CHANGELOG.md                # Version history
 └── README.md
+
 ```
 
 ## 🔧 API Documentation
 
-### Upload Endpoint
+### Backend Endpoints
 
-**POST** `/api/upload`
+#### IPFS Upload
+**POST** `/api/upload/ipfs`
 
-Stores file CID after successful IPFS upload and blockchain transaction.
+Upload a file to IPFS via the backend (API keys secured server-side).
 
-**Request Body:**
-```json
-{
-  "cid": "QmYourIPFSHashHere"
-}
-```
+**Request:** `multipart/form-data` with `file` field
 
 **Response:**
 ```json
 {
-  "message": "Upload record created successfully",
-  "upload": {
-    "_id": "...",
-    "cid": "QmYourIPFSHashHere",
-    "createdAt": "2025-10-09T...",
-    "updatedAt": "2025-10-09T..."
+  "success": true,
+  "message": "File uploaded to IPFS successfully",
+  "data": {
+    "IpfsHash": "QmYourIPFSHashHere",
+    "PinSize": 123456,
+    "Timestamp": "2026-01-09T..."
   }
 }
 ```
 
-### Health Check
+#### Save Upload Record
+**POST** `/api/upload`
 
+Store upload metadata after successful IPFS upload and blockchain transaction.
+
+**Request Body:**
+```json
+{
+  "cid": "QmYourIPFSHashHere",
+  "fileName": "document.pdf",
+  "fileSize": 123456,
+  "fileType": "application/pdf",
+  "walletAddress": "0x1234...abcd",
+  "transactionHash": "0xabcd...1234"
+}
+```
+
+#### Get Upload by CID
+**GET** `/api/upload/cid/:cid`
+
+Retrieve upload record by IPFS CID.
+
+#### Get Uploads by Wallet
+**GET** `/api/upload/wallet/:address?limit=10&skip=0`
+
+Retrieve all uploads for a wallet address with pagination.
+
+#### Get All Uploads
+**GET** `/api/upload?limit=10&skip=0`
+
+Retrieve all uploads with pagination.
+
+#### Health Check
 **GET** `/health`
 
-Returns server status.
+Check server and database status.
 
 **Response:**
 ```json
 {
-  "message": "Server is healthy"
+  "status": "ok",
+  "timestamp": "2026-01-09T...",
+  "uptime": 123.45,
+  "database": "connected",
+  "environment": "development"
 }
 ```
 
+📖 **See [API.md](API.md) for complete API documentation with examples.**
+
 ## 🔐 Security Features
 
+- **Backend API Key Protection**: Pinata API keys stored securely on backend
 - **File Validation**: Strict file type and size validation
-- **API Key Protection**: Environment-based API key management
 - **Input Sanitization**: Server-side validation and sanitization
 - **HTTP Security**: Helmet middleware for secure HTTP headers
-- **Rate Limiting**: Protection against brute-force and DoS attacks
-- **Error Handling**: Comprehensive error handling and user feedback
+- **Rate Limiting**: Protection against brute-force and DoS attacks (configurable)
+- **CORS Configuration**: Configurable allowed origins
+- **Error Handling**: Comprehensive error handling without information leakage
 - **Transaction Verification**: Blockchain transaction confirmation
-- **Atomic Operations**: Database records created only after guaranteed blockchain transaction
+- **Atomic Operations**: Database records created only after blockchain confirmation
 - **Memory Management**: Proper cleanup of file objects and URLs
+- **CID Validation**: Robust validation for both CIDv0 and CIDv1 formats
 
 ## 🛠️ Technology Stack
 

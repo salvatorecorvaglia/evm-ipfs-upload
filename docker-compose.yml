@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:latest
+    container_name: evm-ipfs-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-password123}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - evm-ipfs-network
+
+  # Backend Server
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: evm-ipfs-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5001}:5001"
+    environment:
+      PORT: ${PORT:-5001}
+      NODE_ENV: ${NODE_ENV:-production}
+      MONGO_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-password123}@mongodb:27017/ipfs-upload?authSource=admin
+      PINATA_API_KEY: ${PINATA_API_KEY}
+      PINATA_SECRET_KEY: ${PINATA_SECRET_KEY}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on:
+      - mongodb
+    networks:
+      - evm-ipfs-network
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: evm-ipfs-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_SERVER_URL: ${REACT_APP_SERVER_URL:-http://localhost:5001}
+      REACT_APP_PINATA_GATEWAY_URL: ${REACT_APP_PINATA_GATEWAY_URL:-https://gateway.pinata.cloud}
+    depends_on:
+      - backend
+    networks:
+      - evm-ipfs-network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  evm-ipfs-network:
+    driver: bridge

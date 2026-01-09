@@ -12,36 +12,42 @@ import { useDropzone } from 'react-dropzone';
 import '../styles/index.css';
 import { decodeHexToUTF8, maskAddress } from "../functions";
 import axios from 'axios';
+import {
+    ACCEPTED_FILE_TYPES,
+    MAX_FILE_SIZE,
+    STATUS_MESSAGES,
+    ERROR_CODES,
+    TIMEOUTS
+} from '../constants';
 
 const UploadIPFSPinata = () => {
-    const [uploadState, setUploadState] = useState({
-        file: null,
-        uploadStatus: '',
-        transactionHash: '',
-        walletConnected: false,
-        account: null,
-        loading: false,
-        utf8String: ''
-    });
+    const [file, setFile] = useState(null);
+    const [uploadStatus, setUploadStatus] = useState('');
+    const [transactionHash, setTransactionHash] = useState('');
+    const [walletConnected, setWalletConnected] = useState(false);
+    const [account, setAccount] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [utf8String, setUtf8String] = useState('');
+    const [uploadProgress, setUploadProgress] = useState(0);
 
-    const acceptedFileTypes = ['application/pdf', 'image/png', 'image/jpeg'];
-    const maxFileSize = 100 * 1024 * 1024; // 100 MB limit
-
-    const onDrop = (acceptedFiles) => {
+    const onDrop = useCallback((acceptedFiles) => {
         const selectedFile = acceptedFiles[0];
 
         // Validate file type and size
-        if (!acceptedFileTypes.includes(selectedFile.type)) {
-            return setUploadState(prev => ({ ...prev, uploadStatus: 'Invalid file type. Please upload a PDF, PNG, or JPEG file.' }));
+        if (!ACCEPTED_FILE_TYPES.includes(selectedFile.type)) {
+            return setUploadStatus(STATUS_MESSAGES.INVALID_FILE_TYPE);
         }
 
-        if (selectedFile.size > maxFileSize) {
-            return setUploadState(prev => ({ ...prev, uploadStatus: 'File size exceeds the 100 MB limit.' }));
+        if (selectedFile.size > MAX_FILE_SIZE) {
+            return setUploadStatus(STATUS_MESSAGES.FILE_TOO_LARGE);
         }
 
-        selectedFile.preview = URL.createObjectURL(selectedFile); // Set file preview
-        setUploadState(prev => ({ ...prev, file: selectedFile, uploadStatus: '', transactionHash: '' }));
-    };
+        selectedFile.preview = URL.createObjectURL(selectedFile);
+        setFile(selectedFile);
+        setUploadStatus('');
+        setTransactionHash('');
+        setUploadProgress(0);
+    }, []);
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
 
@@ -52,7 +58,8 @@ const UploadIPFSPinata = () => {
                 const provider = new ethers.BrowserProvider(window.ethereum);
                 const signer = await provider.getSigner();
                 const address = await signer.getAddress();
-                setUploadState(prev => ({ ...prev, account: address, walletConnected: true }));
+                setAccount(address);
+                setWalletConnected(true);
             }
         };
 
@@ -64,131 +71,142 @@ const UploadIPFSPinata = () => {
         };
     }, []);
 
-    const handleDisconnect = useCallback(() => {
-        disconnectMetamask();
-        setUploadState(prev => ({
-            ...prev,
-            file: null,
-            uploadStatus: '',
-            transactionHash: '',
-            walletConnected: false,
-            account: null,
-            loading: false,
-        }));
-    }, []);
-
-    const handleAccountsChanged = async (accounts) => {
+    const handleAccountsChanged = useCallback(async (accounts) => {
         if (accounts.length > 0) {
-            setUploadState(prev => ({ ...prev, account: accounts[0] }));
+            setAccount(accounts[0]);
         } else {
             handleDisconnect();
         }
-    };
+    }, []);
+
+    const handleDisconnect = useCallback(() => {
+        disconnectMetamask();
+        setFile(null);
+        setUploadStatus('');
+        setTransactionHash('');
+        setWalletConnected(false);
+        setAccount(null);
+        setLoading(false);
+        setUploadProgress(0);
+    }, []);
 
     const handleConnect = useCallback(async () => {
         try {
             const signer = await connectToMetamask();
             if (signer) {
                 const address = await signer.getAddress();
-                setUploadState(prev => ({ ...prev, account: address, walletConnected: true, uploadStatus: '' }));
+                setAccount(address);
+                setWalletConnected(true);
+                setUploadStatus('');
             }
         } catch (error) {
             console.error('Failed to connect to MetaMask:', error);
-            setUploadState(prev => ({ ...prev, uploadStatus: error.message || 'Connection failed. Please try again.' }));
+            setUploadStatus(error.message || 'Connection failed. Please try again.');
         }
     }, []);
 
     const handleUploadAndSave = useCallback(async () => {
-        const { walletConnected, file } = uploadState;
-
         if (!walletConnected) {
-            return setUploadState(prev => ({ ...prev, uploadStatus: 'Please connect your wallet.' }));
+            return setUploadStatus(STATUS_MESSAGES.CONNECT_WALLET);
         }
 
         if (!file) {
-            return setUploadState(prev => ({ ...prev, uploadStatus: 'Please upload a file.' }));
+            return setUploadStatus(STATUS_MESSAGES.UPLOAD_FILE);
         }
 
-        setUploadState(prev => ({ ...prev, loading: true, uploadStatus: 'Uploading to IPFS...' }));
+        setLoading(true);
+        setUploadStatus(STATUS_MESSAGES.UPLOADING_IPFS);
+        setUploadProgress(0);
 
         try {
-            const pinataData = await uploadToPinata(file);
+            // Upload to IPFS via backend
+            const pinataData = await uploadToPinata(file, (progress) => {
+                setUploadProgress(progress);
+            });
 
             if (pinataData?.IpfsHash) {
-                setUploadState(prev => ({ ...prev, uploadStatus: 'File uploaded with Pinata. Saving transaction to Blockchain...' }));
+                setUploadStatus(STATUS_MESSAGES.SAVING_BLOCKCHAIN);
 
                 const signer = await connectToMetamask();
                 const transaction = await signer.sendTransaction({
-                    to: uploadState.account,
+                    to: account,
                     data: toUtf8Bytes(pinataData.IpfsHash),
                 });
 
                 const receipt = await transaction.wait();
                 if (receipt.status === 1) {
-                    setUploadState(prev => ({ ...prev, uploadStatus: 'Transaction confirmed. Saving to database...' }));
+                    setUploadStatus(STATUS_MESSAGES.CONFIRMING_TX);
 
                     try {
-                        // Save only CID to MongoDB via Express API using axios
-                        await axios.post(`${process.env.REACT_APP_SERVER_URL}/api/upload`, {
-                            cid: pinataData.IpfsHash, // Only CID is being sent here
+                        // Save to MongoDB with additional metadata
+                        const serverUrl = process.env.REACT_APP_SERVER_URL || 'http://localhost:5001';
+                        await axios.post(`${serverUrl}/api/upload`, {
+                            cid: pinataData.IpfsHash,
+                            fileName: file.name,
+                            fileSize: file.size,
+                            fileType: file.type,
+                            walletAddress: account,
+                            transactionHash: transaction.hash
+                        }, {
+                            timeout: TIMEOUTS.DATABASE_SAVE
                         });
 
-                        setUploadState(prev => ({
-                            ...prev,
-                            transactionHash: transaction.hash,
-                            uploadStatus: 'Transaction and Database Save Successful!',
-                            file: null,
-                            utf8String: decodeHexToUTF8(transaction.data).replace(/\0/g, '')
-                        }));
+                        const decodedString = decodeHexToUTF8(transaction.data).replace(/\0/g, '');
+                        setTransactionHash(transaction.hash);
+                        setUploadStatus(STATUS_MESSAGES.SUCCESS);
+                        setFile(null);
+                        setUtf8String(decodedString);
+                        setUploadProgress(100);
                     } catch (dbError) {
                         console.error('Database save failed:', dbError);
-                        setUploadState(prev => ({
-                            ...prev,
-                            transactionHash: transaction.hash,
-                            uploadStatus: 'Transaction successful, but failed to save to database.',
-                            file: null,
-                            utf8String: decodeHexToUTF8(transaction.data).replace(/\0/g, '')
-                        }));
+                        const decodedString = decodeHexToUTF8(transaction.data).replace(/\0/g, '');
+                        setTransactionHash(transaction.hash);
+                        setUploadStatus(STATUS_MESSAGES.TX_SUCCESS_DB_FAILED);
+                        setFile(null);
+                        setUtf8String(decodedString);
                     }
 
                 } else {
-                    setUploadState(prev => ({ ...prev, uploadStatus: 'Transaction failed. Please try again.' }));
+                    setUploadStatus(STATUS_MESSAGES.TX_FAILED);
                 }
             } else {
-                setUploadState(prev => ({ ...prev, uploadStatus: 'IPFS upload failed. Please try again.' }));
+                setUploadStatus(STATUS_MESSAGES.IPFS_FAILED);
             }
         } catch (error) {
             console.error("Error during upload or transaction:", error);
-            let errorMessage = 'An error occurred. Please try again.';
+            let errorMessage = STATUS_MESSAGES.ERROR;
 
-            if (error.code === 4001) {
-                errorMessage = 'Transaction cancelled by user.';
-            } else if (error.message.includes('insufficient funds')) {
-                errorMessage = 'Insufficient funds for transaction. Please fund your wallet.';
+            if (error.code === ERROR_CODES.USER_REJECTED) {
+                errorMessage = STATUS_MESSAGES.TX_CANCELLED;
+            } else if (error.message.includes(ERROR_CODES.INSUFFICIENT_FUNDS)) {
+                errorMessage = STATUS_MESSAGES.INSUFFICIENT_FUNDS;
+            } else if (error.message) {
+                errorMessage = error.message;
             }
 
-            setUploadState(prev => ({ ...prev, uploadStatus: errorMessage }));
+            setUploadStatus(errorMessage);
+            setUploadProgress(0);
         } finally {
-            setUploadState(prev => ({ ...prev, loading: false }));
+            setLoading(false);
         }
-    }, [uploadState]);
+    }, [walletConnected, file, account]);
 
     // Cleanup for object URLs to prevent memory leaks
     useEffect(() => {
         return () => {
-            if (uploadState.file) {
-                URL.revokeObjectURL(uploadState.file.preview);
+            if (file?.preview) {
+                URL.revokeObjectURL(file.preview);
             }
         };
-    }, [uploadState.file]);
+    }, [file]);
 
     return (
         <div className="document-upload-container">
             <div className="wallet-connection">
-                {uploadState.walletConnected ? (
+                {walletConnected ? (
                     <div className="connected-account">
                         <p>
-                            Connected Account: {maskAddress(uploadState.account)}
+                            Connected Account: {maskAddress(account)}
                         </p>
                         <button className="disconnect-button" onClick={handleDisconnect}>
                             Disconnect
@@ -208,15 +226,15 @@ const UploadIPFSPinata = () => {
                 )}
             </div>
 
-            {uploadState.file && (
+            {file && (
                 <div className="file-details">
                     <h3>Selected File:</h3>
-                    <p>Name: {uploadState.file.name}</p>
-                    <p>Type: {uploadState.file.type}</p>
-                    <p>Size: {(uploadState.file.size / 1024 / 1024).toFixed(2)} MB</p>
-                    {uploadState.file.type.startsWith('image/') && (
+                    <p>Name: {file.name}</p>
+                    <p>Type: {file.type}</p>
+                    <p>Size: {(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    {file.type.startsWith('image/') && (
                         <div className="file-preview">
-                            <img src={uploadState.file.preview} alt="Preview" style={{ width: '100px', height: 'auto' }} />
+                            <img src={file.preview} alt="Preview" style={{ width: '100px', height: 'auto' }} />
                         </div>
                     )}
                 </div>
@@ -225,24 +243,32 @@ const UploadIPFSPinata = () => {
             <button
                 className="upload-button"
                 onClick={handleUploadAndSave}
-                disabled={!uploadState.walletConnected || !uploadState.file || uploadState.loading}
+                disabled={!walletConnected || !file || loading}
             >
-                {uploadState.loading ? 'Uploading...' : 'Upload and Save Transaction'}
+                {loading ? 'Uploading...' : 'Upload and Save Transaction'}
             </button>
 
-            {uploadState.uploadStatus && <p className="upload-status">{uploadState.uploadStatus}</p>}
-            {uploadState.transactionHash && (
+            {loading && uploadProgress > 0 && (
+                <div className="upload-progress">
+                    <div className="progress-bar">
+                        <div className="progress-fill" style={{ width: `${uploadProgress}%` }}></div>
+                    </div>
+                    <p>{uploadProgress}% Uploaded</p>
+                </div>
+            )}
+
+            {uploadStatus && <p className="upload-status">{uploadStatus}</p>}
+            {transactionHash && (
                 <p className="transaction-hash">
                     <button
                         className="disconnect-button"
                         onClick={async () => {
-                            const ipfsUrl = `${process.env.REACT_APP_PINATA_GATEWAY_URL}/ipfs/${uploadState.utf8String}`;
+                            const ipfsUrl = `${process.env.REACT_APP_PINATA_GATEWAY_URL}/ipfs/${utf8String}`;
                             try {
-                                // Open the local IPFS URL in a new tab
                                 window.open(ipfsUrl, '_blank');
                             } catch (error) {
                                 console.error('Error opening IPFS link:', error);
-                                setUploadState(prev => ({ ...prev, uploadStatus: 'Failed to fetch the IPFS content.' }));
+                                setUploadStatus('Failed to fetch the IPFS content.');
                             }
                         }}
                     >
@@ -255,3 +281,4 @@ const UploadIPFSPinata = () => {
 };
 
 export default UploadIPFSPinata;
+

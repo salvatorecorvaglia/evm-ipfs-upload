@@ -1,58 +1,58 @@
 import axios from 'axios';
-import {API_URLS} from '../config';
 
-const PINATA_API_KEY = process.env.REACT_APP_PINATA_API_KEY;
-const PINATA_SECRET_API_KEY = process.env.REACT_APP_PINATA_SECRET_API_KEY;
-
-// Upload a file to Pinata
-export const uploadToPinata = async (file) => {
-    // Validate API keys
-    if (!PINATA_API_KEY || !PINATA_SECRET_API_KEY || PINATA_API_KEY.trim() === '' || PINATA_SECRET_API_KEY.trim() === '') {
-        console.error('Pinata API keys are not defined or are empty.');
-        throw new Error('Pinata API keys are not configured properly.');
-    }
-
-    // Validate file (optional)
+// Upload a file to IPFS via backend endpoint
+// This is more secure as API keys are stored on the backend
+export const uploadToPinata = async (file, onProgress) => {
+    // Validate file
     if (!file) {
         throw new Error('No file provided for upload.');
     }
 
-    const url = API_URLS.pinata; // Use the URL from the config
+    const serverUrl = process.env.REACT_APP_SERVER_URL || 'http://localhost:5001';
+    const url = `${serverUrl}/api/upload/ipfs`;
 
     // Create FormData object and append the file
-    const data = new FormData();
-    data.append('file', file);
+    const formData = new FormData();
+    formData.append('file', file);
 
     try {
-        const response = await axios.post(url, data, {
-            maxContentLength: 'Infinity',
-            timeout: 30000, // Increased timeout to 30 seconds
+        const response = await axios.post(url, formData, {
+            timeout: 60000, // 60 seconds timeout for large files
             onUploadProgress: (progressEvent) => {
-                const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                console.log(`File upload progress: ${progress}%`);
-                // You could update a state here if you want to show progress in the UI
+                if (progressEvent.total) {
+                    const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    console.log(`File upload progress: ${progress}%`);
+
+                    // Call the callback if provided
+                    if (onProgress && typeof onProgress === 'function') {
+                        onProgress(progress);
+                    }
+                }
             },
             headers: {
                 'Content-Type': 'multipart/form-data',
-                'pinata_api_key': PINATA_API_KEY,
-                'pinata_secret_api_key': PINATA_SECRET_API_KEY,
             },
         });
 
         // Validate the response
-        if (response.data && response.data.IpfsHash) {
-            return response.data;
+        if (response.data?.success && response.data?.data?.IpfsHash) {
+            return response.data.data;
         } else {
-            throw new Error('Unexpected response from Pinata: ' + JSON.stringify(response.data));
+            throw new Error('Unexpected response from server: ' + JSON.stringify(response.data));
         }
     } catch (error) {
         // Log the error response if available
         if (error.response) {
-            console.error('Pinata upload failed:', error.response.data);
-            throw new Error(`Pinata upload failed: ${error.response.data.error || error.message}`);
+            console.error('Upload failed:', error.response.data);
+            const errorMessage = error.response.data?.message || error.response.data?.error || error.message;
+            throw new Error(`Upload failed: ${errorMessage}`);
+        } else if (error.request) {
+            console.error('No response from server:', error.message);
+            throw new Error('No response from server. Please check your connection.');
         } else {
-            console.error('Pinata upload failed:', error);
-            throw new Error(`Pinata upload failed: ${error.message || error}`);
+            console.error('Upload failed:', error.message);
+            throw new Error(`Upload failed: ${error.message}`);
         }
     }
 };
+
