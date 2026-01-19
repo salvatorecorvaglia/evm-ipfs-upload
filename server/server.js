@@ -1,13 +1,19 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const connectDB = require('./config/db');
 const uploadRoutes = require('./routes/upload');
 const pinataRoutes = require('./routes/pinata');
-require('dotenv').config();
+
+// Load environment variables from root .env file
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
+const { errorHandler } = require('./middleware/errorHandler');
+const { requestId, requestLogger } = require('./middleware/requestLogger');
 
 const app = express();
 
@@ -49,19 +55,44 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Request ID and Logger
+app.use(requestId);
+app.use(requestLogger);
+
 // Middleware
 app.use(express.json());
-app.use(morgan('dev')); // Log HTTP requests
 
-// Health check route with database status
+// Morgan logging configuration
+if (process.env.NODE_ENV === 'production') {
+    // In production, log only errors
+    app.use(morgan('combined', {
+        skip: (req, res) => res.statusCode < 400
+    }));
+} else {
+    // In development, log all requests
+    app.use(morgan('dev'));
+}
+
+// Health check route with enhanced details
 app.get('/health', async (req, res) => {
     const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+    const memoryUsage = process.memoryUsage();
+
     const health = {
         status: 'ok',
         timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        database: dbStatus,
-        environment: process.env.NODE_ENV || 'development'
+        uptime: Math.floor(process.uptime()),
+        database: {
+            status: dbStatus,
+            name: mongoose.connection.name || 'N/A'
+        },
+        environment: process.env.NODE_ENV || 'development',
+        version: process.env.npm_package_version || '1.0.0',
+        memory: {
+            heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`,
+            heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)}MB`,
+            rss: `${Math.round(memoryUsage.rss / 1024 / 1024)}MB`
+        }
     };
 
     if (dbStatus === 'connected') {
@@ -77,20 +108,16 @@ app.use('/api/upload', uploadRoutes);       // MongoDB CID storage endpoint
 
 // 404 handler
 app.use((req, res) => {
-    res.status(404).json({ message: 'Route not found' });
+    res.status(404).json({
+        success: false,
+        message: 'Route not found',
+        path: req.path
+    });
 });
 
-// Centralized error handling middleware
-app.use((err, req, res, next) => {
-    console.error('Server Error:', err.message);
+// Use centralized error handling middleware
+app.use(errorHandler);
 
-    // Handle CORS errors
-    if (err.message.includes('CORS')) {
-        return res.status(403).json({ message: err.message });
-    }
-
-    res.status(500).json({ message: 'Internal Server Error' });
-});
 
 // Start the server
 const PORT = process.env.PORT || 5001;

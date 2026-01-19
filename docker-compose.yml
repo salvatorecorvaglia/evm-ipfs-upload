@@ -1,5 +1,8 @@
 version: '3.8'
 
+# This docker-compose uses the root .env file for all environment variables
+# Make sure to copy .env.example to .env and configure it before running
+
 services:
   # MongoDB Database
   mongodb:

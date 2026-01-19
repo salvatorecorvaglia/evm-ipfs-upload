@@ -1,8 +1,14 @@
 import axios from 'axios';
 
-// Upload a file to IPFS via backend endpoint
-// This is more secure as API keys are stored on the backend
-export const uploadToPinata = async (file, onProgress) => {
+/**
+ * Upload a file to IPFS via backend endpoint
+ * This is more secure as API keys are stored on the backend
+ * @param {File} file - File to upload
+ * @param {Function} onProgress - Progress callback
+ * @param {AbortSignal} signal - Optional abort signal for cancellation
+ * @returns {Promise} - Upload response data
+ */
+export const uploadToPinata = async (file, onProgress, signal = null) => {
     // Validate file
     if (!file) {
         throw new Error('No file provided for upload.');
@@ -17,7 +23,8 @@ export const uploadToPinata = async (file, onProgress) => {
 
     try {
         const response = await axios.post(url, formData, {
-            timeout: 60000, // 60 seconds timeout for large files
+            timeout: 120000, // 120 seconds timeout for large files
+            signal: signal, // Support for request cancellation
             onUploadProgress: (progressEvent) => {
                 if (progressEvent.total) {
                     const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -41,6 +48,11 @@ export const uploadToPinata = async (file, onProgress) => {
             throw new Error('Unexpected response from server: ' + JSON.stringify(response.data));
         }
     } catch (error) {
+        // Handle request cancellation
+        if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
+            throw new Error('Upload cancelled');
+        }
+
         // Log the error response if available
         if (error.response) {
             console.error('Upload failed:', error.response.data);
@@ -56,3 +68,10 @@ export const uploadToPinata = async (file, onProgress) => {
     }
 };
 
+/**
+ * Create an abort controller for canceling uploads
+ * @returns {AbortController} - Abort controller instance
+ */
+export const createAbortController = () => {
+    return new AbortController();
+};

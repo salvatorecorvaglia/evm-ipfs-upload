@@ -3,12 +3,22 @@ const router = express.Router();
 const axios = require('axios');
 const multer = require('multer');
 const FormData = require('form-data');
+const path = require('path');
+
+// Sanitize file name to prevent path traversal and other issues
+const sanitizeFileName = (fileName) => {
+    // Remove path separators and special chars, keep only safe characters
+    return fileName
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .replace(/\.{2,}/g, '.')
+        .substring(0, 255); // Limit length
+};
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 100 * 1024 * 1024, // 100 MB limit
+        fileSize: parseInt(process.env.MAX_FILE_SIZE) || 100 * 1024 * 1024, // 100 MB default
     },
     fileFilter: (req, file, cb) => {
         const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg'];
@@ -43,50 +53,71 @@ router.post('/', upload.single('file'), async (req, res) => {
             });
         }
 
-        // Create FormData and append file
+        // Create FormData and append file with sanitized name
         const formData = new FormData();
+        const sanitizedFileName = sanitizeFileName(req.file.originalname);
+
         formData.append('file', req.file.buffer, {
-            filename: req.file.originalname,
+            filename: sanitizedFileName,
             contentType: req.file.mimetype
         });
 
-        // Upload to Pinata
+        // Upload to Pinata with retry logic
         const pinataUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
-        
-        const response = await axios.post(pinataUrl, formData, {
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 30000,
-            headers: {
-                ...formData.getHeaders(),
-                'pinata_api_key': PINATA_API_KEY,
-                'pinata_secret_api_key': PINATA_SECRET_KEY,
-            }
-        });
+        const timeout = parseInt(process.env.PINATA_TIMEOUT) || 60000; // 60 seconds default
+        const maxRetries = parseInt(process.env.PINATA_MAX_RETRIES) || 2;
 
-        // Validate response
-        if (response.data && response.data.IpfsHash) {
-            return res.status(200).json({
-                success: true,
-                message: 'File uploaded to IPFS successfully',
-                data: {
-                    IpfsHash: response.data.IpfsHash,
-                    PinSize: response.data.PinSize,
-                    Timestamp: response.data.Timestamp
+        let lastError;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`Upload attempt ${attempt}/${maxRetries} for file: ${sanitizedFileName}`);
+
+                const response = await axios.post(pinataUrl, formData, {
+                    maxContentLength: Infinity,
+                    maxBodyLength: Infinity,
+                    timeout: timeout,
+                    headers: {
+                        ...formData.getHeaders(),
+                        'pinata_api_key': PINATA_API_KEY,
+                        'pinata_secret_api_key': PINATA_SECRET_KEY,
+                    }
+                });
+
+                // Validate response
+                if (response.data && response.data.IpfsHash) {
+                    console.log(`Upload successful on attempt ${attempt}: ${response.data.IpfsHash}`);
+                    return res.status(200).json({
+                        success: true,
+                        message: 'File uploaded to IPFS successfully',
+                        data: {
+                            IpfsHash: response.data.IpfsHash,
+                            PinSize: response.data.PinSize,
+                            Timestamp: response.data.Timestamp
+                        }
+                    });
+                } else {
+                    throw new Error('Unexpected response from Pinata');
                 }
-            });
-        } else {
-            throw new Error('Unexpected response from Pinata');
+
+            } catch (error) {
+                lastError = error;
+                console.error(`Pinata upload attempt ${attempt} failed: ${error.message}`);
+                if (attempt === maxRetries) {
+                    throw lastError; // Re-throw the last error if all retries fail
+                }
+                // Add a delay before retrying (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
         }
 
     } catch (error) {
         console.error('Pinata upload error:', error.message);
-        
+
         // Handle specific errors
         if (error.code === 'LIMIT_FILE_SIZE') {
             return res.status(400).json({
                 success: false,
-                message: 'File size exceeds the 100 MB limit'
+                message: 'File size exceeds the maximum limit'
             });
         }
 
@@ -105,3 +136,4 @@ router.post('/', upload.single('file'), async (req, res) => {
 });
 
 module.exports = router;
+

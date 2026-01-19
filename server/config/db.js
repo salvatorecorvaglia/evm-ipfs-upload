@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
-require('dotenv').config();
+const path = require('path');
+// Load environment variables from root .env file
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
 
 const connectDB = async () => {
     const mongoURI = process.env.MONGO_URI;

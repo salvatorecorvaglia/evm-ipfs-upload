@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isAddress } = require('ethers');
 
 // Improved CID validation for both CIDv0 and CIDv1
 const validateCID = (cid) => {
@@ -8,6 +9,19 @@ const validateCID = (cid) => {
     const cidV1Regex = /^b[a-z2-7]{58,}$/;
 
     return cidV0Regex.test(cid) || cidV1Regex.test(cid);
+};
+
+// Validate Ethereum address using ethers
+const validateEthereumAddress = (address) => {
+    if (!address) return true; // Optional field
+    return isAddress(address);
+};
+
+// Validate transaction hash (0x + 64 hex characters)
+const validateTransactionHash = (hash) => {
+    if (!hash) return true; // Optional field
+    const txHashRegex = /^0x[a-fA-F0-9]{64}$/;
+    return txHashRegex.test(hash);
 };
 
 const UploadSchema = new mongoose.Schema({
@@ -39,11 +53,19 @@ const UploadSchema = new mongoose.Schema({
         trim: true,
         lowercase: true,
         index: true, // Index for efficient queries by wallet
+        validate: {
+            validator: validateEthereumAddress,
+            message: props => `${props.value} is not a valid Ethereum address`
+        }
     },
     transactionHash: {
         type: String,
         trim: true,
         index: true, // Index for efficient queries by transaction
+        validate: {
+            validator: validateTransactionHash,
+            message: props => `${props.value} is not a valid Ethereum transaction hash`
+        }
     },
 }, {
     timestamps: true, // Automatically creates 'createdAt' and 'updatedAt'
@@ -52,6 +74,41 @@ const UploadSchema = new mongoose.Schema({
 // Compound index for common query patterns
 UploadSchema.index({ walletAddress: 1, createdAt: -1 });
 
+// Virtual field: IPFS URL
+UploadSchema.virtual('ipfsUrl').get(function () {
+    const gateway = process.env.PINATA_GATEWAY_URL || 'https://gateway.pinata.cloud';
+    return `${gateway}/ipfs/${this.cid}`;
+});
+
+// Virtual field: Blockchain explorer URL (Etherscan by default)
+UploadSchema.virtual('explorerUrl').get(function () {
+    if (!this.transactionHash) return null;
+    const network = process.env.ETH_NETWORK || 'mainnet';
+    const baseUrl = network === 'mainnet'
+        ? 'https://etherscan.io'
+        : `https://${network}.etherscan.io`;
+    return `${baseUrl}/tx/${this.transactionHash}`;
+});
+
+// Instance method: Get IPFS URL
+UploadSchema.methods.getIpfsUrl = function (customGateway) {
+    const gateway = customGateway || process.env.PINATA_GATEWAY_URL || 'https://gateway.pinata.cloud';
+    return `${gateway}/ipfs/${this.cid}`;
+};
+
+// Instance method: Get explorer URL
+UploadSchema.methods.getExplorerUrl = function (network) {
+    if (!this.transactionHash) return null;
+    const net = network || process.env.ETH_NETWORK || 'mainnet';
+    const baseUrl = net === 'mainnet'
+        ? 'https://etherscan.io'
+        : `https://${net}.etherscan.io`;
+    return `${baseUrl}/tx/${this.transactionHash}`;
+};
+
+// Include virtuals in JSON and Object representations
+UploadSchema.set('toJSON', { virtuals: true });
+UploadSchema.set('toObject', { virtuals: true });
+
 // Export the model
 module.exports = mongoose.model('Upload', UploadSchema);
-
